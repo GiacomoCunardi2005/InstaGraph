@@ -10,9 +10,14 @@ class WebAssetsTests(unittest.TestCase):
 
         self.assertIn('fetch("graph.json"', app)
         self.assertIn("setInterval(refresh, 2000)", app)
-        self.assertIn("gravity: 0.6", app)
-        self.assertIn('idealEdgeLength: (edge) => 160 / edge.data("weight")', app)
-        self.assertIn('edgeElasticity: (edge) => 32 / edge.data("weight")', app)
+        self.assertIn("gravity: 0.1", app)
+        self.assertIn("function leafMarginPosition(index, bounds)", app)
+        self.assertIn("function singleBondLeaves(elements, degree", app)
+        self.assertIn("similarityEdges(graph.elements, distantLeaves)", app)
+        self.assertIn("nodeRepulsion: (node) =>", app)
+        self.assertIn("placeLeaves(cy, distantLeaves)", app)
+        self.assertIn("fit: false", app)
+        self.assertIn("layout a forze", app)
         self.assertIn("vendor/cytoscape.min.js", page)
         self.assertNotIn("http://", app + page)
         self.assertNotIn("https://", app + page)
@@ -29,15 +34,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('"text-outline-width": labelOutline * labelScale', app)
         self.assertIn("keepNodeScreenSize();", app)
 
-    def test_viewer_uses_a_fast_unlabeled_overview_for_large_graphs(self):
+    def test_viewer_keeps_force_layout_for_large_graphs(self):
         app = resources.files("instagraph.web").joinpath("app.js").read_text(encoding="utf-8")
 
         self.assertIn("const nodeSize = 6", app)
         self.assertIn('"min-zoomed-font-size": 8', app)
-        self.assertIn("function usesFastLayout(elements)", app)
-        self.assertIn('name: "concentric"', app)
-        self.assertIn("minNodeSpacing: 12", app)
-        self.assertIn("numIter: 250", app)
+        self.assertIn("function skipsSimilarityEdges(elements)", app)
+        self.assertIn('name: "cose"', app)
+        self.assertNotIn('name: "concentric"', app)
+        self.assertIn("numIter: skipSimilarity ? 100 : 250", app)
 
 
 if __name__ == "__main__":

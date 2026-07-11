@@ -7,8 +7,15 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .exporter import _install_viewer
 from .importer import ImportReport, import_json_file
 from .store import GraphStore
+
+
+class ViewerRequestHandler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
 
 def import_folder(directory: str | Path) -> tuple[Path, tuple[ImportReport, ...]]:
@@ -38,12 +45,13 @@ def viewer_directory() -> Path:
         viewer = Path(store.database_path).parent / "web"
     if not (viewer / "graph.json").is_file():
         raise ValueError("no local graph yet; import a JSON export first")
+    _install_viewer(viewer)
     return viewer
 
 
 def serve_viewer(viewer: Path) -> None:
     """Serve the private viewer only on the local loopback interface."""
-    handler = partial(SimpleHTTPRequestHandler, directory=str(viewer))
+    handler = partial(ViewerRequestHandler, directory=str(viewer))
     with ThreadingHTTPServer(("127.0.0.1", 8000), handler) as server:
         print("Open http://127.0.0.1:8000/ and press Ctrl+C when finished.")
         try:

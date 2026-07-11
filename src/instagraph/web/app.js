@@ -11,9 +11,11 @@ const MAX_COMMON_NEIGHBORS = 24;
 const MAX_SIMILARITY_EDGES = 500;
 // ponytail: cap shared-neighbor force at three; add a tuned force model if dense clusters need finer separation.
 const MAX_SIMILARITY_WEIGHT = 3;
-// ponytail: degree rings are the fast overview above these caps; add a worker-based community layout if large graphs need semantic clusters.
-const MAX_FORCE_LAYOUT_NODES = 300;
-const MAX_FORCE_LAYOUT_EDGES = 1000;
+// ponytail: skip derived similarity springs above these caps; add a worker layout if CoSE becomes slow.
+const MAX_SIMILARITY_LAYOUT_NODES = 300;
+const MAX_SIMILARITY_LAYOUT_EDGES = 1000;
+const LEAF_MARGIN = 320;
+const LEAF_SPACING = 96;
 
 const style = [
   {
@@ -65,7 +67,67 @@ function keepNodeScreenSize() {
   });
 }
 
-function similarityEdges(elements) {
+function bondDegrees(elements) {
+  const degree = new Map(elements.nodes.map(({ data }) => [data.id, 0]));
+  for (const { data } of elements.edges) {
+    degree.set(data.source, degree.get(data.source) + 1);
+    degree.set(data.target, degree.get(data.target) + 1);
+  }
+  return degree;
+}
+
+function singleBondLeaves(elements, degree = bondDegrees(elements)) {
+  const leaves = new Set();
+  for (const { data } of elements.edges) {
+    if (data.bond_type !== "single") continue;
+    if (degree.get(data.source) === 1) leaves.add(data.source);
+    if (degree.get(data.target) === 1) leaves.add(data.target);
+  }
+  return leaves;
+}
+
+function leafMarginPosition(index, bounds) {
+  const left = bounds.x1 - LEAF_MARGIN;
+  const right = bounds.x2 + LEAF_MARGIN;
+  const top = bounds.y1 - LEAF_MARGIN;
+  const bottom = bounds.y2 + LEAF_MARGIN;
+  const horizontalSlots = Math.max(1, Math.floor((right - left) / LEAF_SPACING));
+  const verticalSlots = Math.max(1, Math.floor((bottom - top) / LEAF_SPACING));
+  const slotsPerLayer = 2 * (horizontalSlots + verticalSlots);
+  const layer = Math.floor(index / slotsPerLayer);
+  let slot = index % slotsPerLayer;
+  const offset = layer * LEAF_SPACING;
+
+  if (slot < horizontalSlots) {
+    return { x: left + (slot + 0.5) * LEAF_SPACING, y: top - offset };
+  }
+  slot -= horizontalSlots;
+  if (slot < verticalSlots) {
+    return { x: right + offset, y: top + (slot + 0.5) * LEAF_SPACING };
+  }
+  slot -= verticalSlots;
+  if (slot < horizontalSlots) {
+    return { x: right - (slot + 0.5) * LEAF_SPACING, y: bottom + offset };
+  }
+  return {
+    x: left - offset,
+    y: bottom - (slot - horizontalSlots + 0.5) * LEAF_SPACING,
+  };
+}
+
+function placeLeaves(cy, leafIds) {
+  const leaves = cy.nodes().filter((node) => leafIds.has(node.id()));
+  if (!leaves.length) return;
+  const core = cy.nodes().filter((node) => !leafIds.has(node.id()));
+  const bounds = core.length
+    ? core.boundingBox()
+    : { x1: -LEAF_MARGIN, x2: LEAF_MARGIN, y1: -LEAF_MARGIN, y2: LEAF_MARGIN };
+  cy.batch(() => {
+    leaves.forEach((node, index) => node.position(leafMarginPosition(index, bounds)));
+  });
+}
+
+function similarityEdges(elements, excludedNodes = new Set()) {
   const neighbors = new Map(elements.nodes.map(({ data }) => [data.id, []]));
   for (const { data } of elements.edges) {
     neighbors.get(data.source).push(data.target);
@@ -81,6 +143,7 @@ function similarityEdges(elements) {
           accounts[left] < accounts[right]
             ? [accounts[left], accounts[right]]
             : [accounts[right], accounts[left]];
+        if (excludedNodes.has(source) || excludedNodes.has(target)) continue;
         const id = `similarity--${source}--${target}`;
         const similarity = edges.get(id);
         if (similarity) {
@@ -108,10 +171,10 @@ function similarityEdges(elements) {
   return [...edges.values()];
 }
 
-function usesFastLayout(elements) {
+function skipsSimilarityEdges(elements) {
   return (
-    elements.nodes.length > MAX_FORCE_LAYOUT_NODES ||
-    elements.edges.length > MAX_FORCE_LAYOUT_EDGES
+    elements.nodes.length > MAX_SIMILARITY_LAYOUT_NODES ||
+    elements.edges.length > MAX_SIMILARITY_LAYOUT_EDGES
   );
 }
 
@@ -120,12 +183,14 @@ function draw(graph) {
   if (elements === currentElements) return;
   currentElements = elements;
 
-  const fastLayout = usesFastLayout(graph.elements);
+  const skipSimilarity = skipsSimilarityEdges(graph.elements);
+  const degrees = bondDegrees(graph.elements);
+  const distantLeaves = singleBondLeaves(graph.elements, degrees);
   const layoutElements = {
     nodes: graph.elements.nodes,
-    edges: fastLayout
+    edges: skipSimilarity
       ? graph.elements.edges
-      : [...graph.elements.edges, ...similarityEdges(graph.elements)],
+      : [...graph.elements.edges, ...similarityEdges(graph.elements, distantLeaves)],
   };
 
   if (!cy) {
@@ -135,28 +200,28 @@ function draw(graph) {
     cy.elements().remove();
     cy.add(layoutElements);
   }
-  const layout = fastLayout
-    ? {
-        name: "concentric",
-        animate: false,
-        padding: 32,
-        minNodeSpacing: 12,
-        spacingFactor: 1.3,
-      }
-    : {
-        name: "cose",
-        animate: false,
-        padding: 32,
-        componentSpacing: 112,
-        gravity: 0.6,
-        nodeRepulsion: 4096,
-        idealEdgeLength: (edge) => 160 / edge.data("weight"),
-        edgeElasticity: (edge) => 32 / edge.data("weight"),
-        numIter: 250,
-      };
-  cy.layout(layout).run();
+  const layout = {
+    name: "cose",
+    animate: false,
+    fit: false,
+    padding: 32,
+    componentSpacing: 112,
+    gravity: 0.1,
+    nodeRepulsion: (node) => 4096 / Math.sqrt(Math.max(1, degrees.get(node.id()))),
+    idealEdgeLength: (edge) => 160 / edge.data("weight"),
+    edgeElasticity: (edge) => 32 / edge.data("weight"),
+    numIter: skipSimilarity ? 100 : 250,
+  };
+  const forceElements = cy.elements().filter((element) =>
+    element.isNode()
+      ? !distantLeaves.has(element.id())
+      : !distantLeaves.has(element.source().id()) &&
+        !distantLeaves.has(element.target().id())
+  );
+  if (forceElements.nodes().length) forceElements.layout(layout).run();
+  placeLeaves(cy, distantLeaves);
   keepNodeScreenSize();
-  statusElement.textContent = `${graph.elements.nodes.length} account · ${graph.elements.edges.length} legami`;
+  statusElement.textContent = `${graph.elements.nodes.length} account · ${graph.elements.edges.length} legami · layout a forze`;
 }
 
 async function refresh() {
