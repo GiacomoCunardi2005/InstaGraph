@@ -65,9 +65,11 @@ Without an explicit path, `GraphStore` writes under the private XDG user-data di
 Explicit database files are created with owner-only permissions; do not weaken them.
 
 The browser companion is allowed only as a user-controlled, local capture: the user
-opens and scrolls the page, explicitly starts/stops capture, confirms the profile and
-list direction, and reviews the JSON v1 export before importing it. It may retain only
-the normalized usernames and directed edges needed for that export.
+opens and scrolls the page, explicitly starts/stops capture, confirms the list direction,
+and reviews the JSON v1 export before importing it. At Start, the content script may
+derive only the normalized owner from an exact active profile pathname and immediately
+discard the pathname; it may retain/message/export only normalized usernames, direction,
+and directed edges.
 
 Do not add autonomous browser scraping or crawling. In particular, do not use
 Playwright, Selenium, Instaloader, direct Instagram requests, session/cookie/profile

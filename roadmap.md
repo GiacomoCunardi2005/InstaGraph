@@ -25,14 +25,18 @@ Il traffico verso Instagram resta quello normale del browser dell'utente. Il com
 non legge cookie, token, credenziali, storage, profili browser o sessioni e non conserva
 HTML, screenshot, URL completi o contenuti della pagina.
 
+All'avvio legge soltanto il pathname canonico `/username/` del profilo nella tab attiva,
+lo normalizza in un username e lo scarta subito. Il pathname o l'URL non entrano nel
+popup, nella bozza, nel JSON, nell'audit o in SQLite.
+
 Il companion non avvia mai uno scroll. Il browser non distingue però con certezza uno
 scroll fisico da uno avviato dalla pagina: il vincolo verificabile è che l'estensione
 non lo genera e cattura solo nella tab visibile durante una sessione attiva.
 
 ## Contratto della cattura
 
-La cattura è disattivata per default. Prima di iniziarla, l'utente conferma il profilo
-della lista e il suo tipo:
+La cattura è disattivata per default. Prima di iniziarla, il companion deriva l'owner
+normalizzato dal pathname esatto del profilo aperto e l'utente conferma il tipo di lista:
 
 | Lista confermata | Arco esportato per ogni username visibile |
 | --- | --- |
@@ -58,8 +62,8 @@ rivederla ed esportarla. L'export ha il formato JSON v1 esistente:
 
 Il file passa sempre da import_json_file(): l'importer conserva i limiti, la
 normalizzazione tramite GraphStore.normalize_username, l'atomicità e l'audit. Il nome
-del file o un'etichetta fissa come manual-visible-ui è la fonte auditata; non va
-salvato l'URL della pagina.
+del file o un'etichetta fissa come manual-visible-ui è la fonte auditata; pathname e
+URL della pagina non vengono salvati.
 
 ## Limiti non negoziabili
 
@@ -115,8 +119,8 @@ richiedono account, rete o browser profile.
 
 - Documentare consenso per sessione, indicatore di cattura attiva e cancellazione della
   bozza locale.
-- Definire il contesto obbligatorio profilo + tipo lista e la conversione in archi
-  diretti.
+- Derivare l'owner solo dal pathname esatto del profilo attivo e richiedere il tipo lista
+  per la conversione in archi diretti.
 - Preparare fixture HTML locali con elementi aggiunti mentre l'utente scorre.
 - Definire il comportamento fail-closed quando la lista visibile non è riconosciuta.
 - Mantenere i test totalmente offline: nessun account, sessione o chiamata Instagram.
@@ -137,7 +141,8 @@ mismatch, un link extra o un'origine inattesa falliscono in modo chiuso. Il cont
 - Consentire avvio e stop espliciti nella scheda scelta dall'utente.
 - Durante la sessione, registrare soltanto gli username che diventano visibili mentre
   l'utente fa scroll manualmente.
-- Richiedere e mostrare il contesto profilo + following/followers prima dell'export.
+- Mostrare l'owner normalizzato derivato dalla tab e richiedere following/followers
+  prima dell'export.
 - Deduplicare nella sola bozza in memoria e permettere di eliminarla.
 - Non chiedere né memorizzare credenziali, cookie, sessioni o storage del sito.
 

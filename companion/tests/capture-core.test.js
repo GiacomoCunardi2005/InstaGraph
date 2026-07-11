@@ -4,6 +4,29 @@ const manifest = require("../manifest.json");
 const path = require("node:path");
 const test = require("node:test");
 const core = require("../capture-core.js");
+const instagram = require("../instagram-adapter.js");
+
+function directionDocument(title) {
+  const heading = {
+    isConnected: true,
+    children: [],
+    parentElement: null,
+    textContent: title,
+    getClientRects: () => [{}],
+  };
+  const dialog = {
+    querySelector: (selector) => (selector === "input" ? {} : null),
+    querySelectorAll: () => [heading],
+  };
+  return {
+    defaultView: {
+      getComputedStyle: () => ({
+        display: "block", visibility: "visible", contentVisibility: "visible", opacity: "1",
+      }),
+    },
+    querySelectorAll: () => [dialog],
+  };
+}
 
 test("context requires owner, direction, and explicit consent", () => {
   assert.equal(core.validateContext({ owner: "marco", direction: "following", consent: false }).ok, false);
@@ -11,6 +34,35 @@ test("context requires owner, direction, and explicit consent", () => {
     core.validateContext({ owner: " @Marco ", direction: "followers", consent: true }).context,
     { owner: "marco", direction: "followers" },
   );
+});
+
+test("profile owner comes only from an exact profile path", () => {
+  assert.equal(core.profileOwnerFromPath("/Marco/"), "marco");
+  assert.equal(core.profileOwnerFromPath("/marco"), null);
+  assert.equal(core.profileOwnerFromPath("/marco/?unexpected"), null);
+  assert.equal(core.profileOwnerFromPath("/marco/#unexpected"), null);
+  assert.equal(core.profileOwnerFromPath("/marco/followers/"), null);
+  assert.equal(core.profileOwnerFromPath("/explore/"), null);
+  assert.equal(core.profileOwnerFromPath("/p/example/"), null);
+});
+
+test("Instagram adapter derives only verified visible list directions", () => {
+  assert.equal(instagram.resolveDirection(directionDocument("Follower")).direction, "followers");
+  assert.equal(instagram.resolveDirection(directionDocument("Chi segui")).direction, "following");
+  assert.equal(instagram.resolveDirection(directionDocument("Seguiti")).ok, false);
+});
+
+test("popup preselects direction through the narrow adapter", () => {
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup.js"), "utf8");
+  const popupHtml = fs.readFileSync(path.join(__dirname, "..", "popup.html"), "utf8");
+  const content = fs.readFileSync(path.join(__dirname, "..", "content.js"), "utf8");
+
+  assert.match(popup, /send\("DETECT_DIRECTION"/);
+  assert.doesNotMatch(popupHtml, /<select id="direction"/);
+  assert.match(popupHtml, /<input id="direction" type="hidden"/);
+  assert.match(popupHtml, /id="direction-summary"/);
+  assert.match(content, /case "DETECT_DIRECTION":/);
+  assert.match(content, /adapter\.resolveDirection\(document\)/);
 });
 
 test("draft is strict JSON v1 with deduplicated directed edges", () => {
@@ -104,6 +156,30 @@ test("automatic capture reads a reused visible row's current username", () => {
   );
 });
 
+test("automatic capture skips a row whose username is outside the viewport", () => {
+  const alice = { innerText: "alice" };
+  const username = {};
+  Object.defineProperty(username, "innerText", {
+    get() { throw new Error("offscreen username was read"); },
+  });
+  const aliceRow = {};
+  const transientRow = {};
+  const resolver = () => ({
+    ok: true,
+    direction: "followers",
+    rows: [
+      { row: aliceRow, usernameNode: alice },
+      { row: transientRow, usernameNode: username },
+    ],
+  });
+
+  assert.deepEqual(core.visibleUsernames({}, (element) => element !== username, resolver), {
+    ok: true,
+    direction: "followers",
+    usernames: ["alice"],
+  });
+});
+
 test("manifest remains a foreground-only extension", () => {
   assert.deepEqual(manifest.permissions, ["activeTab", "scripting"]);
   assert.equal("host_permissions" in manifest, false);
@@ -117,4 +193,13 @@ test("popup keeps the content script as the draft source of truth", () => {
   assert.doesNotMatch(popup, /\breviewedDraft\b/);
   assert.match(popup, /reply = await send\("STATUS"\)/);
   assert.match(popup, /draftPreview\.innerText = ""/);
+});
+
+test("content derives the owner from the active profile path", () => {
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup.js"), "utf8");
+  const content = fs.readFileSync(path.join(__dirname, "..", "content.js"), "utf8");
+
+  assert.doesNotMatch(popup, /document\.querySelector\("#owner"\)/);
+  assert.match(content, /core\.profileOwnerFromPath\(location\.pathname\)/);
+  assert.match(content, /profileOwnerFromPath\(location\.pathname\) !== session\.context\.owner/);
 });

@@ -6,8 +6,8 @@
   const core = globalThis.InstaGraphCaptureCore;
   const scope = "instagraph-visible-capture-v1";
   const form = document.querySelector("#context-form");
-  const owner = document.querySelector("#owner");
   const direction = document.querySelector("#direction");
+  const directionSummary = document.querySelector("#direction-summary");
   const consent = document.querySelector("#consent");
   const startButton = document.querySelector("#start");
   const status = document.querySelector("#status");
@@ -19,7 +19,6 @@
 
   function rawContext() {
     return {
-      owner: owner.value,
       direction: direction.value,
       consent: consent.checked,
     };
@@ -31,7 +30,7 @@
   }
 
   function updateStartAvailability() {
-    startButton.disabled = !core.validateContext(rawContext()).ok;
+    startButton.disabled = !core.validateCaptureOptions(rawContext()).ok;
   }
 
   async function activeTabId() {
@@ -42,9 +41,15 @@
     return tabs[0].id;
   }
 
-  async function send(type, extra) {
-    const tabId = await activeTabId();
-    return extension.tabs.sendMessage(tabId, { scope, type, ...extra });
+  async function send(type, extra, tabId) {
+    return extension.tabs.sendMessage(tabId ?? await activeTabId(), { scope, type, ...extra });
+  }
+
+  async function injectController(tabId) {
+    await extension.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      files: ["capture-core.js", "instagram-adapter.js", "content.js"],
+    });
   }
 
   function render(reply) {
@@ -76,26 +81,50 @@
 
   async function refreshStatus() {
     try {
-      render(await send("STATUS"));
+      const reply = await send("STATUS");
+      render(reply);
+      return reply;
     } catch (_) {
-      render({ ok: true, state: "idle" });
+      const reply = { ok: true, state: "idle" };
+      render(reply);
+      return reply;
+    }
+  }
+
+  async function prefillDirection() {
+    direction.value = "";
+    directionSummary.innerText = "Direzione: in attesa di rilevamento.";
+    try {
+      const tabId = await activeTabId();
+      await injectController(tabId);
+      const detected = await send("DETECT_DIRECTION", undefined, tabId);
+      if (!detected.ok) {
+        directionSummary.innerText = "Direzione non rilevata.";
+        showStatus("Apri una lista Instagram riconosciuta per rilevare la direzione.", true);
+        return;
+      }
+      direction.value = detected.direction;
+      directionSummary.innerText = `Direzione rilevata: ${detected.direction === "followers" ? "Follower" : "Chi segui"}.`;
+      showStatus("Lista rilevata. Conferma e avvia la cattura.", false);
+    } catch (_) {
+      directionSummary.innerText = "Direzione non rilevata.";
+      showStatus("Apri una lista Instagram nella tab attiva per rilevare la direzione.", true);
+    } finally {
+      updateStartAvailability();
     }
   }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const checked = core.validateContext(rawContext());
+    const checked = core.validateCaptureOptions(rawContext());
     if (!checked.ok) {
       render({ ok: false, reason: checked.reason });
       return;
     }
     try {
       const tabId = await activeTabId();
-      await extension.scripting.executeScript({
-        target: { tabId, frameIds: [0] },
-        files: ["capture-core.js", "instagram-adapter.js", "content.js"],
-      });
-      render(await send("START", { context: rawContext() }));
+      await injectController(tabId);
+      render(await send("START", { context: rawContext() }, tabId));
     } catch (_) {
       render({ ok: false, reason: "la cattura è disponibile solo nella tab attiva supportata" });
     }
@@ -141,10 +170,15 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
-  for (const field of [owner, direction, consent]) {
+  for (const field of [consent]) {
     field.addEventListener("input", updateStartAvailability);
     field.addEventListener("change", updateStartAvailability);
   }
   updateStartAvailability();
-  refreshStatus();
+  refreshStatus().then((reply) => {
+    if (reply.state !== "active" && reply.state !== "review") {
+      return prefillDirection();
+    }
+    return undefined;
+  });
 }());

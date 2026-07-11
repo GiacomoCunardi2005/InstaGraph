@@ -1,4 +1,4 @@
-/* Runs only after the user presses Start in the extension popup. */
+/* Installs after the user opens the popup; capture starts only after Start. */
 (function installVisibleCapture() {
   "use strict";
 
@@ -8,7 +8,10 @@
   const controllerKey = "__instagraphVisibleCaptureControllerV1";
   const messageScope = "instagraph-visible-capture-v1";
 
-  if (!extension || !core || !adapter || typeof adapter.resolve !== "function" || globalThis[controllerKey]) {
+  if (
+    !extension || !core || !adapter || typeof adapter.resolve !== "function"
+    || typeof adapter.resolveDirection !== "function" || globalThis[controllerKey]
+  ) {
     return;
   }
 
@@ -131,23 +134,34 @@
       return { ok: true, ...summary() };
     }
 
-    function visibleUsernames() {
-      return core.visibleUsernames(
+    function expectedDirection(result, direction) {
+      if (result.ok && result.direction !== direction) {
+        return { ok: false, reason: "the visible list does not match the confirmed direction" };
+      }
+      return result;
+    }
+
+    function visibleUsernames(direction) {
+      return expectedDirection(core.visibleUsernames(
         document,
         (element) => core.isInViewport(element, window),
         adapter.resolve,
-      );
+      ), direction);
     }
 
-    function validateStructure() {
-      return core.validateStructure(document, adapter.resolve);
+    function validateStructure(direction) {
+      return expectedDirection(core.validateStructure(document, adapter.resolve), direction);
     }
 
     function captureVisibleRows() {
       if (!session || session.state !== "active") {
         return;
       }
-      const snapshot = visibleUsernames();
+      if (core.profileOwnerFromPath(location.pathname) !== session.context.owner) {
+        fail("profile changed during capture");
+        return;
+      }
+      const snapshot = visibleUsernames(session.context.direction);
       if (!snapshot.ok) {
         fail(snapshot.reason);
         return;
@@ -193,12 +207,12 @@
         if (!session || session.state !== "active") {
           return;
         }
-        const structure = validateStructure();
+        const structure = validateStructure(session.context.direction);
         if (!structure.ok) {
           fail(structure.reason);
         }
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
     }
 
     function start(rawContext) {
@@ -211,15 +225,19 @@
       if (session) {
         return { ok: false, reason: "discard the current draft before starting again" };
       }
-      const checked = core.validateContext(rawContext);
+      const owner = core.profileOwnerFromPath(location.pathname);
+      if (!owner) {
+        return fail("open a profile URL before starting capture");
+      }
+      const checked = core.validateContext({ ...rawContext, owner });
       if (!checked.ok) {
         return { ok: false, reason: checked.reason };
       }
-      const structure = validateStructure();
+      const structure = validateStructure(checked.context.direction);
       if (!structure.ok) {
         return fail(structure.reason);
       }
-      const initial = visibleUsernames();
+      const initial = visibleUsernames(checked.context.direction);
       if (!initial.ok) {
         return fail(initial.reason);
       }
@@ -248,6 +266,10 @@
     return {
       handle(message) {
         switch (message.type) {
+          case "DETECT_DIRECTION":
+            return supportedPage()
+              ? adapter.resolveDirection(document)
+              : { ok: false, reason: "unsupported page" };
           case "START":
             return start(message.context);
           case "STOP":

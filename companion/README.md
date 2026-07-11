@@ -1,7 +1,9 @@
 # Companion locale
 
 Carica `companion/` come estensione non pacchettizzata. La cattura è disattivata
-finché l'utente non conferma owner, direzione e consenso nel popup.
+finché l'utente non conferma direzione e consenso nel popup. Al momento Start, il content
+script ricava l'owner normalizzato soltanto dal pathname esatto del profilo attivo e
+scarta subito il pathname: URL e pathname non entrano nel popup, nell'export o nel DB.
 
 Senza `instagram-adapter.js`, il core accetta esclusivamente il contratto fixture
 `data-instagraph-*=v1`. Quando il popup lo inietta, l'adapter richiede invece un unico

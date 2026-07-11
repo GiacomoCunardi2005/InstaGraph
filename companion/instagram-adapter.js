@@ -3,7 +3,11 @@
   "use strict";
 
   const DIALOG_SELECTOR = 'div[role="dialog"][aria-modal="true"]';
-  const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+  const HEADING_SELECTOR = '[role="heading"][aria-level="1"]';
+  const DIRECTIONS_BY_HEADING = new Map([
+    ["Follower", "followers"],
+    ["Chi segui", "following"],
+  ]);
   const ROW_CLASSES = new Set([
     "x1ja2u2z",
     "x1n2onr6",
@@ -42,8 +46,8 @@
     }
   }
 
-  function isRenderedLeaf(node, view) {
-    if (!node.isConnected || node.children.length !== 0 || !view || typeof view.getComputedStyle !== "function") {
+  function isRendered(node, view) {
+    if (!node.isConnected || !view || typeof view.getComputedStyle !== "function") {
       return false;
     }
     for (let current = node; current; current = current.parentElement) {
@@ -60,16 +64,43 @@
     return node.getClientRects().length > 0;
   }
 
-  function resolve(document) {
+  function isRenderedLeaf(node, view) {
+    return node.children.length === 0 && isRendered(node, view);
+  }
+
+  function resolveDialogDirection(document) {
     const dialogs = document?.querySelectorAll?.(DIALOG_SELECTOR);
     if (!dialogs || dialogs.length !== 1) {
       return fail("the Instagram list dialog is not uniquely recognized");
     }
 
     const dialog = dialogs[0];
-    if (!dialog.querySelector(HEADING_SELECTOR) || !dialog.querySelector("input")) {
+    if (!dialog.querySelector("input")) {
       return fail("the Instagram list dialog is incomplete");
     }
+    const headings = Array.from(dialog.querySelectorAll(HEADING_SELECTOR))
+      .filter((heading) => isRenderedLeaf(heading, document.defaultView));
+    if (headings.length !== 1) {
+      return fail("the Instagram list direction is not uniquely recognized");
+    }
+    const direction = DIRECTIONS_BY_HEADING.get(headings[0].textContent.trim());
+    if (!direction) {
+      return fail("the Instagram list direction is not recognized");
+    }
+    return { ok: true, dialog, direction };
+  }
+
+  function resolveDirection(document) {
+    const resolved = resolveDialogDirection(document);
+    return resolved.ok ? { ok: true, direction: resolved.direction } : resolved;
+  }
+
+  function resolve(document) {
+    const resolvedDialog = resolveDialogDirection(document);
+    if (!resolvedDialog.ok) {
+      return resolvedDialog;
+    }
+    const { dialog, direction } = resolvedDialog;
 
     const rows = Array.from(dialog.querySelectorAll("div")).filter(isRow);
     if (rows.length === 0) {
@@ -108,10 +139,10 @@
       routes.add(route);
       resolved.push({ row, usernameNode: leaves[0] });
     }
-    return { ok: true, rows: resolved };
+    return { ok: true, rows: resolved, direction };
   }
 
-  const api = Object.freeze({ resolve });
+  const api = Object.freeze({ resolve, resolveDirection });
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }

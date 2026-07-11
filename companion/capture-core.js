@@ -3,6 +3,11 @@
   "use strict";
 
   const USERNAME_PATTERN = /^[a-z0-9._]{1,30}$/;
+  const RESERVED_PROFILE_PATHS = new Set([
+    "about", "accounts", "api", "challenge", "direct", "directory", "emails",
+    "explore", "legal", "login", "oauth", "p", "press", "privacy", "reel",
+    "reels", "stories", "terms", "web",
+  ]);
   const DOM_CONTRACT = Object.freeze({
     root: '[data-instagraph-list-root="v1"]',
     row: '[data-instagraph-list-row="v1"]',
@@ -20,12 +25,32 @@
     return normalized;
   }
 
-  function validateContext(value) {
+  function profileOwnerFromPath(pathname) {
+    if (typeof pathname !== "string") {
+      return null;
+    }
+    const match = /^\/([a-z0-9._]{1,30})\/$/i.exec(pathname);
+    if (!match) {
+      return null;
+    }
+    const owner = normalizeUsername(match[1]);
+    return RESERVED_PROFILE_PATHS.has(owner) ? null : owner;
+  }
+
+  function validateCaptureOptions(value) {
     if (!value || value.consent !== true) {
       return { ok: false, reason: "explicit consent is required" };
     }
     if (value.direction !== "following" && value.direction !== "followers") {
       return { ok: false, reason: "choose following or followers" };
+    }
+    return { ok: true };
+  }
+
+  function validateContext(value) {
+    const options = validateCaptureOptions(value);
+    if (!options.ok) {
+      return options;
     }
     try {
       return {
@@ -160,7 +185,7 @@
       }
       const usernameNode = resolvedRow.usernameNode || row.querySelector(DOM_CONTRACT.username);
       if (!isVisible(usernameNode)) {
-        return { ok: false, reason: "a visible username is not rendered" };
+        continue;
       }
       try {
         usernames.push(normalizeUsername(usernameNode.innerText));
@@ -168,7 +193,11 @@
         return { ok: false, reason: "a visible list row has an invalid username" };
       }
     }
-    return { ok: true, usernames };
+    const result = { ok: true, usernames };
+    if (typeof structure.direction === "string") {
+      result.direction = structure.direction;
+    }
+    return result;
   }
 
   function buildDraft(context, usernames) {
@@ -197,6 +226,8 @@
     buildDraft,
     isInViewport,
     normalizeUsername,
+    profileOwnerFromPath,
+    validateCaptureOptions,
     validateStructure,
     validateContext,
     visibleUsernames,

@@ -32,7 +32,9 @@
   const recognized = core.visibleUsernames(documentInFrame, () => true);
   assert(recognized.ok && recognized.usernames.join(",") === "alice,bob", "legge solo username dichiarati");
   const following = core.buildDraft(
-    core.validateContext({ owner: "@marco", direction: "following", consent: true }).context,
+    core.validateContext({
+      owner: core.profileOwnerFromPath("/marco/"), direction: "following", consent: true,
+    }).context,
     recognized.usernames,
   );
   assert(following.follows[0].source === "marco" && following.follows[0].target === "alice", "direzione following");
@@ -55,8 +57,18 @@
   assert(!core.validateStructure(documentInFrame).ok, "figlio inatteso: fail-closed");
 
   [documentInFrame] = await loadFixture("instagram-recognized-list.html");
+  const heading = documentInFrame.querySelector('[role="heading"][aria-level="1"]');
+  assert(instagram.resolveDirection(documentInFrame).direction === "followers", "adapter rileva Follower");
+  heading.textContent = "Chi segui";
+  assert(instagram.resolveDirection(documentInFrame).direction === "following", "adapter rileva Chi segui");
+  heading.textContent = "Lista sconosciuta";
+  assert(!instagram.resolveDirection(documentInFrame).ok, "adapter rifiuta una direzione sconosciuta");
+  heading.textContent = "Follower";
   const instagramList = core.visibleUsernames(documentInFrame, () => true, instagram.resolve);
-  assert(instagramList.ok && instagramList.usernames.join(",") === "alice,bob", "adapter legge solo testo username verificato");
+  assert(
+    instagramList.ok && instagramList.direction === "followers" && instagramList.usernames.join(",") === "alice,bob",
+    "adapter legge solo testo username verificato",
+  );
 
   [documentInFrame, fixtureWindow] = await loadFixture("instagram-row-added-on-scroll.html");
   const instagramBefore = core.visibleUsernames(documentInFrame, () => true, instagram.resolve);
@@ -85,7 +97,9 @@
   assert(onlyVisible.ok && onlyVisible.usernames.join(",") === "alice", "adapter non legge testo fuori viewport");
 
   const followers = core.buildDraft(
-    core.validateContext({ owner: "marco", direction: "followers", consent: true }).context,
+    core.validateContext({
+      owner: core.profileOwnerFromPath("/marco/"), direction: "followers", consent: true,
+    }).context,
     ["alice"],
   );
   assert(followers.follows[0].source === "alice" && followers.follows[0].target === "marco", "direzione followers");

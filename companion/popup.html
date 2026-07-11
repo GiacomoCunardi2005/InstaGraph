@@ -6,7 +6,7 @@
     <title>InstaGraph capture</title>
     <style>
       body { font: 14px system-ui, sans-serif; margin: 14px; min-width: 300px; color: #222; }
-      label, select, input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; }
+      label, select, input:not([type="hidden"]) { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; }
       label.consent { display: flex; gap: 7px; align-items: start; }
       label.consent input { width: auto; margin: 2px 0; }
       button { margin: 6px 4px 0 0; }
@@ -20,19 +20,14 @@
     <p id="status" role="status">Cattura disattivata.</p>
 
     <form id="context-form">
-      <label for="owner">Profilo della lista</label>
-      <input id="owner" autocomplete="off" placeholder="@marco" required>
+      <p>Il profilo viene ricavato da instagram.com/nomeutente/ nella scheda attiva.</p>
 
-      <label for="direction">Lista confermata</label>
-      <select id="direction" required>
-        <option value="">Scegli una lista</option>
-        <option value="following">following di questo profilo</option>
-        <option value="followers">followers di questo profilo</option>
-      </select>
+      <p id="direction-summary">Direzione: in attesa di rilevamento.</p>
+      <input id="direction" type="hidden" value="">
 
       <label class="consent" for="consent">
         <input id="consent" type="checkbox">
-        <span>Confermo di vedere questa lista e avvio una cattura solo nella tab attiva.</span>
+        <span>Confermo di vedere questa lista e la direzione rilevata, e avvio una cattura solo nella tab attiva.</span>
       </label>
       <button id="start" type="submit" disabled>Avvia cattura</button>
     </form>
