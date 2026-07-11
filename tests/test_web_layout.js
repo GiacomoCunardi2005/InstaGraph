@@ -52,3 +52,20 @@ test("similarity strength has a stable ceiling", () => {
 
   assert.equal(aliceAndBob.data.weight, 3);
 });
+
+test("large graphs use the fast overview layout", () => {
+  const context = vm.createContext({
+    document: { querySelector: () => ({ textContent: "" }) },
+    window: { location: { protocol: "file:" } },
+  });
+  vm.runInContext(source, context);
+
+  const result = JSON.parse(
+    vm.runInContext(
+      "JSON.stringify([usesFastLayout({nodes: Array(301), edges: []}), usesFastLayout({nodes: [], edges: Array(1001)}), usesFastLayout({nodes: Array(300), edges: Array(1000)})])",
+      context
+    )
+  );
+
+  assert.deepEqual(result, [true, true, false]);
+});

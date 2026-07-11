@@ -1,6 +1,6 @@
 const graphElement = document.querySelector("#graph");
 const statusElement = document.querySelector("#status");
-const nodeSize = 30;
+const nodeSize = 6;
 const labelSize = 11;
 const labelOutline = 2;
 let currentElements = "";
@@ -8,9 +8,12 @@ let cy;
 
 // ponytail: skip high-degree hubs; add a scalable similarity index if hub similarity matters.
 const MAX_COMMON_NEIGHBORS = 24;
-const MAX_SIMILARITY_EDGES = 2000;
+const MAX_SIMILARITY_EDGES = 500;
 // ponytail: cap shared-neighbor force at three; add a tuned force model if dense clusters need finer separation.
 const MAX_SIMILARITY_WEIGHT = 3;
+// ponytail: degree rings are the fast overview above these caps; add a worker-based community layout if large graphs need semantic clusters.
+const MAX_FORCE_LAYOUT_NODES = 300;
+const MAX_FORCE_LAYOUT_EDGES = 1000;
 
 const style = [
   {
@@ -22,6 +25,7 @@ const style = [
       width: nodeSize,
       height: nodeSize,
       "font-size": labelSize,
+      "min-zoomed-font-size": 8,
       "text-outline-color": "#101217",
       "text-outline-width": labelOutline,
     },
@@ -35,12 +39,13 @@ const style = [
       "line-color": "#7b8ba3",
       "target-arrow-color": "#7b8ba3",
       "target-arrow-shape": "triangle",
+      opacity: 0.3,
       width: 1.5,
     },
   },
   {
     selector: 'edge[bond_type = "double"]',
-    style: { "line-color": "#64d39a", "target-arrow-shape": "none", width: 3 },
+    style: { "line-color": "#64d39a", "target-arrow-shape": "none", opacity: 0.3, width: 3 },
   },
   {
     selector: 'edge[layout_only = "true"]',
@@ -49,12 +54,14 @@ const style = [
 ];
 
 function keepNodeScreenSize() {
-  const scale = 1 / cy.zoom();
+  const zoom = cy.zoom();
+  const nodeScale = 1 / zoom;
+  const labelScale = 1 / Math.max(1, zoom);
   cy.nodes().style({
-    width: nodeSize * scale,
-    height: nodeSize * scale,
-    "font-size": labelSize * scale,
-    "text-outline-width": labelOutline * scale,
+    width: nodeSize * nodeScale,
+    height: nodeSize * nodeScale,
+    "font-size": labelSize * labelScale,
+    "text-outline-width": labelOutline * labelScale,
   });
 }
 
@@ -94,10 +101,18 @@ function similarityEdges(elements) {
             layout_only: "true",
           },
         });
+        if (edges.size === MAX_SIMILARITY_EDGES) return [...edges.values()];
       }
     }
   }
   return [...edges.values()];
+}
+
+function usesFastLayout(elements) {
+  return (
+    elements.nodes.length > MAX_FORCE_LAYOUT_NODES ||
+    elements.edges.length > MAX_FORCE_LAYOUT_EDGES
+  );
 }
 
 function draw(graph) {
@@ -105,9 +120,12 @@ function draw(graph) {
   if (elements === currentElements) return;
   currentElements = elements;
 
+  const fastLayout = usesFastLayout(graph.elements);
   const layoutElements = {
     nodes: graph.elements.nodes,
-    edges: [...graph.elements.edges, ...similarityEdges(graph.elements)],
+    edges: fastLayout
+      ? graph.elements.edges
+      : [...graph.elements.edges, ...similarityEdges(graph.elements)],
   };
 
   if (!cy) {
@@ -117,14 +135,26 @@ function draw(graph) {
     cy.elements().remove();
     cy.add(layoutElements);
   }
-  cy.layout({
-    name: "cose",
-    animate: false,
-    padding: 32,
-    gravity: 1.2,
-    idealEdgeLength: (edge) => 96 / edge.data("weight"),
-    edgeElasticity: (edge) => 32 / edge.data("weight"),
-  }).run();
+  const layout = fastLayout
+    ? {
+        name: "concentric",
+        animate: false,
+        padding: 32,
+        minNodeSpacing: 12,
+        spacingFactor: 1.3,
+      }
+    : {
+        name: "cose",
+        animate: false,
+        padding: 32,
+        componentSpacing: 112,
+        gravity: 0.6,
+        nodeRepulsion: 4096,
+        idealEdgeLength: (edge) => 160 / edge.data("weight"),
+        edgeElasticity: (edge) => 32 / edge.data("weight"),
+        numIter: 250,
+      };
+  cy.layout(layout).run();
   keepNodeScreenSize();
   statusElement.textContent = `${graph.elements.nodes.length} account · ${graph.elements.edges.length} legami`;
 }
