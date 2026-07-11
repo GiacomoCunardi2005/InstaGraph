@@ -22,6 +22,13 @@ SERVICE_MAP = {
 
 MAX_RETRIES = 5
 
+# Weights for the derived single/double BOND layer between two Person nodes.
+# A reciprocal (double) follow is a stronger social signal than a one-way (single)
+# follow, so it carries more weight in closeness / centrality / community scoring.
+# Set DOUBLE_BOND_WEIGHT to 3 to emphasise reciprocity more strongly.
+SINGLE_BOND_WEIGHT = 1
+DOUBLE_BOND_WEIGHT = 2
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TEMPLATES_DIR = os.path.join(

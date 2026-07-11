@@ -89,6 +89,7 @@ class OSINTGraphAgent:
         self.sync_template()
         self.initialize_agent()
         self.initialize_vector_store()
+        self.initialize_bonds()
         self.initialize_graph()
 
 
@@ -240,6 +241,15 @@ class OSINTGraphAgent:
                         self.logger.error(f"⚠  Failed to embed {label}.{field} batch: {e}")
 
             live_console.print(f"[grey70]• ✓  {label}[/grey70]", end=" ")
+
+
+    def initialize_bonds(self):
+        """Rebuild the single/double BOND layer so the graph is analysis-ready."""
+        live_console.print("[grey70]🔗 Updating bonds...[/grey70]")
+        try:
+            self.nm.execute_write(self.nm.refresh_all_bonds)
+        except Exception as e:
+            self.logger.warning(f"⚠  Failed to refresh bonds: {e}")
 
 
     def initialize_agent(self):

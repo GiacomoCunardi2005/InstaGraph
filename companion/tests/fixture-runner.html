@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <title>InstaGraph companion fixtures</title>
+    <style>
+      body { font: 15px system-ui, sans-serif; margin: 20px; }
+      .pass { color: #18794e; }
+      .fail { color: #b42318; }
+      iframe { width: 320px; height: 120px; border: 1px solid #bbb; }
+    </style>
+  </head>
+  <body>
+    <h1>Fixture locali della cattura</h1>
+    <p id="summary">Esecuzione…</p>
+    <ul id="results"></ul>
+    <iframe id="fixture" title="fixture locale"></iframe>
+    <script src="../capture-core.js"></script>
+    <script src="../instagram-adapter.js"></script>
+    <script src="fixture-runner.js"></script>
+  </body>
+</html>

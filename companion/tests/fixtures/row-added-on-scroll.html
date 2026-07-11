@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font: 16px system-ui, sans-serif; }
+  [data-instagraph-list-row] { height: 28px; padding: 4px; }
+</style>
+<div data-instagraph-list-root="v1" id="list">
+  <div data-instagraph-list-row="v1"><span data-instagraph-username="v1">alice</span></div>
+</div>
+<script>
+  window.appendVisibleRow = () => {
+    const row = document.createElement("div");
+    row.setAttribute("data-instagraph-list-row", "v1");
+    const username = document.createElement("span");
+    username.setAttribute("data-instagraph-username", "v1");
+    username.innerText = "charlie";
+    row.append(username);
+    document.querySelector("#list").append(row);
+  };
+</script>

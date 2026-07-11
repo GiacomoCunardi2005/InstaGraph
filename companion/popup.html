@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>InstaGraph capture</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 14px; min-width: 300px; color: #222; }
+      label, select, input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; }
+      label.consent { display: flex; gap: 7px; align-items: start; }
+      label.consent input { width: auto; margin: 2px 0; }
+      button { margin: 6px 4px 0 0; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 210px; overflow: auto; }
+      .error { color: #9c1c14; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>InstaGraph</h1>
+    <p id="status" role="status">Cattura disattivata.</p>
+
+    <form id="context-form">
+      <label for="owner">Profilo della lista</label>
+      <input id="owner" autocomplete="off" placeholder="@marco" required>
+
+      <label for="direction">Lista confermata</label>
+      <select id="direction" required>
+        <option value="">Scegli una lista</option>
+        <option value="following">following di questo profilo</option>
+        <option value="followers">followers di questo profilo</option>
+      </select>
+
+      <label class="consent" for="consent">
+        <input id="consent" type="checkbox">
+        <span>Confermo di vedere questa lista e avvio una cattura solo nella tab attiva.</span>
+      </label>
+      <button id="start" type="submit" disabled>Avvia cattura</button>
+    </form>
+
+    <section id="active" hidden>
+      <p id="active-summary"></p>
+      <button id="stop" type="button">Ferma e rivedi</button>
+    </section>
+
+    <section id="review" hidden>
+      <p>Rivedi il JSON locale prima di esportarlo.</p>
+      <p id="review-summary"></p>
+      <pre id="draft"></pre>
+      <button id="export" type="button">Esporta JSON</button>
+      <button id="discard" type="button">Cancella bozza</button>
+    </section>
+
+    <script src="capture-core.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

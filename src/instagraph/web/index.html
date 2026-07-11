@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>InstaGraph</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #101217; color: #e9edf5; }
+      header { align-items: center; border-bottom: 1px solid #2a303b; display: flex; gap: 1rem; padding: .75rem 1rem; }
+      h1 { font-size: 1rem; margin: 0; }
+      #status { color: #aeb8c8; font-size: .875rem; }
+      #graph { height: calc(100vh - 58px); width: 100vw; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>InstaGraph</h1>
+      <output id="status">Caricamento…</output>
+    </header>
+    <main id="graph" aria-label="Mappa delle relazioni importate"></main>
+    <script src="vendor/cytoscape.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

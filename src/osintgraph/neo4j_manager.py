@@ -11,7 +11,7 @@ from dateutil.parser import isoparse
 from typing import Optional, Dict, Generator
 
 from .credential_manager import get_credential_manager
-from .constants import USEFUL_FIELDS
+from .constants import USEFUL_FIELDS, SINGLE_BOND_WEIGHT, DOUBLE_BOND_WEIGHT
 
 
 @dataclass
@@ -294,18 +294,6 @@ class Neo4jManager:
 
         session.run(query, **params)
 
-    # def save_resume_hash_v2(self, session, username, resume_hash):
-        
-    #     followers_resume_hash = resume_hash.get('followers', "")
-    #     followees_resume_hash = resume_hash.get('followees', "")
-    #     session.run("""
-    #         MATCH (p:Person {username: $username})
-    #         SET p.followers_resume_hash = $followers_resume_hash
-    #         SET p.followees_resume_hash = $followees_resume_hash
-    #         REMOVE p.resume_hash
-    #         """,username=username, followers_resume_hash = followers_resume_hash, followees_resume_hash = followees_resume_hash
-    #     )
-
     def get_resume_hashes(self, session: Session, username: str, types: list[str]) -> dict[str, str]:
         prop_map = {
             "followers": "_followers_resume_hash",
@@ -338,22 +326,6 @@ class Neo4jManager:
             self.logger.warning(f"Neo4j error fetching resume hashes for {username}: {e}")
             return {t: "" for t in types}
 
-    def find_resume_hash(self, session: Session, limit=100):
-    
-        try: 
-            result = session.run("""
-                MATCH (p:Person)
-                WHERE (p.followers_resume_hash IS NOT NULL AND p.followers_resume_hash <> "")
-                OR (p.followees_resume_hash IS NOT NULL AND p.followees_resume_hash <> "")
-                RETURN p.username AS username, 
-                    p.followers_resume_hash AS followers_resume_hash,
-                    p.followees_resume_hash AS followees_resume_hash
-                LIMIT $limit
-            """, limit=limit)
-            
-            return [record for record in result]
-        except Neo4jError as e:
-                self.logger.warning(f"Property not found for ID {id}, using default value.")
     def manage_follow_relationships(self, session: Session, user_id, result: dict):
 
         try:
@@ -468,6 +440,76 @@ class Neo4jManager:
                 DELETE r  
                 
             """, user_id=user_id, followers_id_to_follow_back=followers_id)
+
+    ### Bond layer (single / double) — a derived view over the directed FOLLOWS edges.
+
+    def refresh_bonds(self, session: Session, username: str,
+                      single_weight: int = SINGLE_BOND_WEIGHT,
+                      double_weight: int = DOUBLE_BOND_WEIGHT):
+        """
+        (Re)compute the single/double BOND layer for every pair of Person nodes
+        connected to `username` by a FOLLOWS edge (in either direction).
+
+        A BOND is one canonical relationship per pair — created from the lower `id`
+        to the higher `id`, so `marco-luca` and `luca-marco` never become two rows —
+        that summarizes the two directed FOLLOWS edges:
+          - bond_type = "double" when both accounts follow each other, else "single"
+          - a_follows_b / b_follows_a mirror the real directions
+          - weight is higher for reciprocal (double) bonds
+        The directed FOLLOWS / UNFOLLOWED edges are left untouched.
+        """
+        session.run("""
+            MATCH (t:Person {username: $username})-[:FOLLOWS]-(o:Person)
+            WITH DISTINCT t, o
+            WITH (CASE WHEN t.id < o.id THEN t ELSE o END) AS a,
+                 (CASE WHEN t.id < o.id THEN o ELSE t END) AS b
+            WITH DISTINCT a, b
+            WITH a, b,
+                 EXISTS { MATCH (a)-[:FOLLOWS]->(b) } AS a_follows_b,
+                 EXISTS { MATCH (b)-[:FOLLOWS]->(a) } AS b_follows_a
+            MERGE (a)-[r:BOND]->(b)
+            SET r.a_follows_b = a_follows_b,
+                r.b_follows_a = b_follows_a,
+                r.bond_type = CASE WHEN a_follows_b AND b_follows_a THEN 'double' ELSE 'single' END,
+                r.weight = CASE WHEN a_follows_b AND b_follows_a THEN $double_weight ELSE $single_weight END
+        """, username=username, single_weight=single_weight, double_weight=double_weight)
+
+        # Drop bonds whose underlying follows have all disappeared (e.g. after unfollows).
+        session.run("""
+            MATCH (t:Person {username: $username})-[r:BOND]-(o:Person)
+            WHERE NOT EXISTS { MATCH (t)-[:FOLLOWS]->(o) }
+              AND NOT EXISTS { MATCH (o)-[:FOLLOWS]->(t) }
+            DELETE r
+        """, username=username)
+
+    def refresh_all_bonds(self, session: Session,
+                          single_weight: int = SINGLE_BOND_WEIGHT,
+                          double_weight: int = DOUBLE_BOND_WEIGHT):
+        """
+        Rebuild the whole BOND layer from the existing FOLLOWS graph. Idempotent —
+        used to backfill bonds for data scraped before this feature existed, or that
+        was collected while skipping the per-user refresh in `discover`.
+        """
+        session.run("""
+            MATCH (a:Person)-[:FOLLOWS]-(b:Person)
+            WHERE a.id < b.id
+            WITH DISTINCT a, b
+            WITH a, b,
+                 EXISTS { MATCH (a)-[:FOLLOWS]->(b) } AS a_follows_b,
+                 EXISTS { MATCH (b)-[:FOLLOWS]->(a) } AS b_follows_a
+            MERGE (a)-[r:BOND]->(b)
+            SET r.a_follows_b = a_follows_b,
+                r.b_follows_a = b_follows_a,
+                r.bond_type = CASE WHEN a_follows_b AND b_follows_a THEN 'double' ELSE 'single' END,
+                r.weight = CASE WHEN a_follows_b AND b_follows_a THEN $double_weight ELSE $single_weight END
+        """, single_weight=single_weight, double_weight=double_weight)
+
+        session.run("""
+            MATCH (a:Person)-[r:BOND]->(b:Person)
+            WHERE NOT EXISTS { MATCH (a)-[:FOLLOWS]->(b) }
+              AND NOT EXISTS { MATCH (b)-[:FOLLOWS]->(a) }
+            DELETE r
+        """)
 
     def like_post(self, session: Session, likers):
 
@@ -685,28 +727,6 @@ class Neo4jManager:
             result = session.run(query, username=username)
             for record in result:
                 yield dict(record["post"])
-    def get_post_by_id(self, session, id: int) -> Optional[dict]:
-        result = session.run("MATCH (p:Post {id: $id}) RETURN p {.*, date_utc: toString(p.date_utc), date_local: toString(p.date_local)}", id=id)
-        record = result.single()
-        if record:
-            return dict(record["p"])
-        return None
-
-    def get_post_by_shortcode(self, session, shortcode: str) -> Optional[dict]:
-        result = session.run("MATCH (p:Post {shortcode: $shortcode}) RETURN p {.*, date_utc: toString(p.date_utc), date_local: toString(p.date_local)}", shortcode=shortcode)
-        record = result.single()
-        if record:
-            return dict(record["p"])
-        return None
-    def count_posts_by_username(self, session, username: str) -> int:
-        query = """
-        MATCH (p:Person {username: $username})-[:POSTED]->(post:Post)
-        RETURN count(post) AS total
-        """
-        result = session.run(query, username=username)
-        record = result.single()
-        return record["total"] if record else 0
-
     def count_posts_unanalyzed_by_username(self, session, username: str) -> int:
         query = """
         MATCH (p:Person {username: $username})-[:POSTED]->(post:Post)
@@ -757,108 +777,6 @@ class Neo4jManager:
         final_comments.sort(key=lambda x: isoparse(x["timestamp"]))
         return final_comments
     
-    def get_partial_posts_by_username(self, username: str) -> Generator[dict, None, None]:
-        with self.driver.session() as session:
-            query = """
-            MATCH (p:Person {username: $username})-[:POSTED]->(post:Post)
-            RETURN post { .id, .comments, date_local: toString(post.date_local), .pcaption, .caption, .caption_mentions, .is_sponsored, .title, .caption_hashtags, .tagged_users, .is_video, date_utc: toString(post.date_utc), .mediacount, .likes, .image_analysis, .post_analysis} AS post
-            """
-            result = session.run(query, username=username)
-            for record in result:
-                post = dict(record["post"])
-                if post.get('image_analysis'):
-                    post['image_analysis'] = json.loads(post['image_analysis'])
-                if post.get('post_analysis'):
-                    post['post_analysis'] = json.loads(post['post_analysis'])
-                yield dict(post)
-    def get_comments_by_username(self, username: str):
-        query = """
-        MATCH (p:Person {username: $username})-[:COMMENTED]->(c:Comment)
-        RETURN c {.*, created_at_utc: toString(c.created_at_utc)}
-        """
-
-        with self.driver.session() as session:
-            result = session.run(query, username=username)
-            for record in result:
-                yield dict(record["c"])
-
-    def get_full_comments_by_username(self, username: str):
-        query = """
-        MATCH (p:Person {username: $username})-[:COMMENTED]->(c:Comment)-[:ON]->(post:Post)
-        OPTIONAL MATCH (c)-[:REPLY_TO]->(parentComment:Comment)
-        RETURN c {.likes_count ,created_at_utc : toString(c.created_at_utc) ,.text} AS c, post {.id ,.pcaption ,.caption ,.caption_hashtags ,.tagged_users ,date_local: toString(post.date_local) ,date_utc: toString(post.date_utc) ,.image_analysis ,.post_analysis} AS post, parentComment {.likes_count ,created_at_utc: toString(parentComment.created_at_utc) ,.text} AS parentComment
-        """
-
-        with self.driver.session() as session:
-            result = session.run(query, username=username)
-            for record in result:
-                comment = dict(record["c"])
-                post = dict(record["post"])  # always exists
-                parent_comment = dict(record["parentComment"]) if record["parentComment"] else None
-                yield {
-                    "comment": comment,
-                    "replied_to_comment": parent_comment,
-                    "post": post
-                    
-                }
-
-    def get_liked_posts_by_username(self, username: str):
-        query = """
-        MATCH (p:Person {username: $username})-[:LIKED]->(post:Post)<-[:POSTED]-(owner:Person)
-        RETURN post { .id ,.pcaption ,.caption ,.caption_hashtags ,.tagged_users ,date_local: toString(post.date_local) ,date_utc: toString(post.date_utc) ,.image_analysis ,.post_analysis} AS post, 
-        owner.username AS post_owner_name, 
-        EXISTS {MATCH (p)-[:FOLLOWS]->(owner)} AS user_follows_owner, 
-        EXISTS {MATCH (owner)-[:FOLLOWS]->(p)} AS owner_follows_user
-
-        """
-
-        with self.driver.session() as session:
-            result = session.run(query, username=username)
-            for record in result:
-                post = dict(record["post"])
-                post["post_owner_name"] = record["post_owner_name"]
-                post["user_follows_owner"] = record["user_follows_owner"]
-                post["owner_follows_user"] = record["owner_follows_user"]
-                post["mutual_follow"] = (
-                    post["user_follows_owner"] and post["owner_follows_user"]
-                )
-                yield post
-    def get_liked_comments_by_username(self, username: str):
-        query = """
-        MATCH (p:Person {username: $username})-[:LIKED]->(comment:Comment)
-        RETURN comment {.likes_count ,created_at_utc: toString(comment.created_at_utc) ,.text} AS comment
-        """
-
-        with self.driver.session() as session:
-            result = session.run(query, username=username)
-            for record in result:
-                yield dict(record["comment"])
-
-    def get_followers_with_post_by_username(self, session, username: str) -> list[dict]:
-        query = """
-        MATCH (user:Person {username: $username})-[:FOLLOWS]->(followee:Person)
-        WITH followee
-        MATCH (followee)-[:POSTED]->(:Post)
-        RETURN DISTINCT followee {
-            .username,
-            .fullname,
-            .bio,
-            .biography_mentions,
-            .biography_hashtags,
-            .business_category_name,
-            .followees,
-            .is_business_account,
-            .account_analysis
-        }
-        """
-        result = session.run(query, username=username)
-        followees = []
-        for record in result:
-            followee_node = record["followee"]
-            followees.append(dict(followee_node))
-        return followees
-
-
     def get_schema_summary(self, session):
         try:
             result = session.run("CALL apoc.meta.schema() YIELD value RETURN value")

@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "InstaGraph Visible Capture",
+  "version": "0.1.0",
+  "description": "Manual foreground capture of verified visible list usernames.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting"]
+}

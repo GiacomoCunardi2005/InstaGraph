@@ -152,7 +152,12 @@ class InstagramManager:
             else:
                 self.logger.info(f"⤷  Skipped {data_type.capitalize()}")
 
-        
+        print()
+        self.logger.info("BONDS -")
+        self.neo4j_manager.execute_write(self.neo4j_manager.refresh_bonds, target_user)
+        self.logger.info("✓  Bonds updated (single / double)")
+
+
 
         # if self.config.debug_mode:
         #     with open(f"{target_user}_followers.json", "w") as json_file:
